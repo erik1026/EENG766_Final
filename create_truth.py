@@ -162,45 +162,6 @@ class CreateSim:
         self.meas.reshape((1,len(self.landmark_locs)))
 
         self.params=params
-     
-    def h(self, location):
-        '''
-        Take in the current location and generate what the measurements
-        should be (without noise). Requires the landmark locations (from
-        self) and the location being measured (a parameter)
-
-        Args:
-            location:  A (3,) numpy array with object location in it
-
-        Returns:  A (len(landmark_locs), ) numpy array
-        '''
-        vec_diffs = np.zeros(len(self.landmark_locs))
-        for i,landmark in enumerate(self.landmark_locs):
-            vec_diffs[i] = la.norm(location-landmark)
-        return vec_diffs
-
-    def H(self,location):
-        '''
-        Take in the current location and generate what the derivative of
-        the measurements (rows) should be w.r.t. the location (columns).
-        
-        Requires the landmark locations (from self) and the object location being 
-        measured (a parameter)
-
-        Args:
-            location:  A (3,) numpy array with location in it
-
-        Returns:  A (len(landmark_locs),3) numpy array
-        '''
-        H = np.zeros((len(self.landmark_locs),3))
-        for i,landmark in enumerate(self.landmark_locs):
-            H_row = np.zeros(3)
-            dist = la.norm(location-landmark)
-            for j in range(3):
-                H_row[j] = location[j]-landmark[j]
-            H_row /= dist
-            H[i] = H_row
-        return H
 
     def propagate(self, V, w_yaw, w_pitch, num_dts_forward=1):
         '''
@@ -282,8 +243,6 @@ class CreateSim:
             self.b_C_ns[idx] = norm_R(curr_b_C_n)
             idxs.append(idx)
             
-            #While I'm at it, create all the measurements
-            self.meas[idx] = self.h(self.positions[idx]) + np.random.randn(3)*self.R_sd
         print('End of loop, pos idx',idx,'position',curr_pos)
         # Now that I have the true state stored, create gyro and accel 
         # measurements for these states...

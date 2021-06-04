@@ -221,7 +221,7 @@ class Camera:
         if random_roll:
             roll = ((np.random.rand(1))*2*m.pi - m.pi).item(0)
         
-        self.set_rot(rot.axis2(roll).dot(point_at_R_w) )
+        #self.set_rot(rot.axis2(roll).dot(point_at_R_w) )
         return self.c_R_w
 
     def points_from_line_normal(self, n):
@@ -533,6 +533,7 @@ class Camera:
             pixel_pts.append(p_X)
         world_pts = np.array(world_pts)
         pixel_pts = np.array(pixel_pts)
+        print(f'Pixel Points\n{pixel_pts}')
 
         #When to stop iterating
         min_dx = 1E-5
@@ -541,6 +542,7 @@ class Camera:
         #initialize the GN procedure
         curr_cam = Camera(K,curr_R,curr_t,im_size)
         est_pts = curr_cam.project_points(world_pts)
+        print(est_pts)
         new_diff = pixel_pts - est_pts
         num_iters = 0
         dx = min_dx * 2.0
@@ -548,6 +550,7 @@ class Camera:
         #Run the GN
         while num_iters < max_iters and la.norm(dx) > min_dx:
             y = new_diff.flatten()
+            #print(y)
             J = np.zeros((num_pts*2,6))
             for ii,w_X in enumerate(world_pts):
                 J[ii*2:(ii+1)*2]= curr_cam.proj_deriv_Rt(w_X)
