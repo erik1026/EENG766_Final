@@ -155,12 +155,13 @@ class CreateSim:
         self.gyros = None
         self.accels = None
 
+        '''
         if 'landmarkLocs' not in params:
             params['landmarkLocs'] = np.array([-10000,0,0., -2000, 8000, 1000,  -2000, -8000, -1500]).reshape((3,3))
         self.landmark_locs = params['landmarkLocs']
         self.meas = self.h(init_pos) + np.random.randn(len(self.landmark_locs))*self.R_sd
         self.meas.reshape((1,len(self.landmark_locs)))
-
+        '''
         self.params=params
 
     def propagate(self, V, w_yaw, w_pitch, num_dts_forward=1):
@@ -279,7 +280,7 @@ if __name__ == "__main__":
     params['gyroFOGM']=gyro_FOGM
     params['accelFOGM']=accel_FOGM
     params['R'] = 1 #1m standard deviation
-    params['landmarkLocs'] = np.array([-10000,0,0., -2000, 8500, 1000,  -2000, -8000, -1500]).reshape((3,3))
+    #params['landmarkLocs'] = np.array([-10000,0,0., -2000, 8500, 1000,  -2000, -8000, -1500]).reshape((3,3))
 
     sim = CreateSim(params)
 
