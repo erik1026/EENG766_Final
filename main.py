@@ -171,7 +171,7 @@ class sim_world:
     ss2 = vec2ss(np.array([0,0,1.]))
     sss = np.array([ss0,ss1,ss2])
     def __init__(self,imu=None, scenerio=None, world_pts=None): 
-        # If no world points are passed in then we'll create a rectangular prism to work with
+       
         self.n_pos = 36 # 360/10 = 36 waypoints
         self.n_ts = self.n_pos - 1
         self.world_pts = np.array([[-.5, -.5, 0.5], [.5,-.5,0.5],[-.5,.5,0.5],
@@ -194,7 +194,7 @@ class sim_world:
 
         self.gyro_noise = FOGM(gyro_rw, 3, gyro_bias_rw, gyro_tau)
         self.accel_noise = FOGM(accel_rw, 3, accel_bias_rw, accel_tau)
-        self.dt = 1.
+        self.dt = .1
         self.n_grav = np.array([0,0.,9.8])
 
         ## gyro
@@ -248,7 +248,7 @@ class sim_world:
 
         self.positions = np.zeros((self.n_ts, 3))
         self.positions = copy.copy(self.cam_pos[:self.n_ts])
-        self.rotations = np.zeros((self.n_ts, 3))
+        self.rotations = []
         self.rotations = copy.copy(self.cam_rot[:self.n_ts])
 
         # Compute Camera Velocities
@@ -298,10 +298,10 @@ class sim_world:
                       create_skew_symm_mat(np.array([0., 1., 0])),
                       create_skew_symm_mat(np.array([0., 0., 1.]))])
     
-    def compute_H(self):
+    def compute_H(self, idx):
         H = np.zeros((16,15))
-         
         '''
+        
         This takes the derivative of the project_points function w.r.t. R and t.
         dR is defined as a Skew Symmetric matrix as in utils.create_skew_symm_mat that
         is multiplied _to the right_ of c_R_w in the projection function.  In other words
@@ -322,9 +322,10 @@ class sim_world:
             tmp_X = np.ones((4,))
             tmp_X[:3] = self.world_pts[i]
 
-            KR = self.cam.K.dot(self.cam.c_R_w)
-            w_diff = self.world_pts[i] - self.cam.w_cam
+            KR = self.cam.K.dot(self.rotations[idx])
+            w_diff = self.world_pts[i] - self.positions[idx]
             PX = self.cam._P.dot(tmp_X)
+            
 
             for ii in range(3):
                 #It = np.hstack((np.eye(3),-self.w_cam.reshape((3,1))))
@@ -334,10 +335,11 @@ class sim_world:
             going_out = np.zeros((2,6))
             going_out[0] = (dPX_dRt[0] - dPX_dRt[2]*PX[0]/PX[2])/PX[2]
             going_out[1] = (dPX_dRt[1] - dPX_dRt[2]*PX[1]/PX[2])/PX[2]
-            H[i*2: i*2 + 2, :3] = going_out[:, :3]
-            H[i*2: i*2 + 2, 6:9] = going_out[:, 3:]
-
-
+            H[i*2: i*2 + 2, :3] = going_out[:, 3:]
+            H[i*2: i*2 + 2, 6:9] = going_out[:, :3]
+            
+        #print(f'H\n{H}')
+            
         return H
     
     def f(self,idx):
@@ -388,14 +390,14 @@ class sim_world:
         ## R2v(C_k^T C_gyro^T C_{k+1}(estimated))
         ## First take the derivative of the log w.r.t the whole matrix inside
         R_gyro = v2R(self.dt*(self.gyros[idx]-self.g_biases[idx]))
-        big_R = self.cam_rot[idx].T.dot(R_gyro.T.dot(self.cam_rot[idx+1]))
+        big_R = self.rotations[idx].T.dot(R_gyro.T.dot(self.cam_rot[idx+1]))
         JR = J_logm(big_R)
         ## Now take the derivative of R w.r.t the state vector parts and 
         ## Do an element-by-element multiply with JR to get the complete derivative
         ### w.r.t. b_g
         for j in range(3):
             # The negative and the transpose cancel, I think...
-            dbig_R_d_gyro = self.cam_rot[idx].T.dot(self.sss[j].dot(self.cam_rot[idx+1]))
+            dbig_R_d_gyro = self.rotations[idx].T.dot(self.sss[j].dot(self.rotations[idx+1]))
             F[6:9,9+j] = log_J_to_vec(JR,self.dt*dbig_R_d_gyro)
         
         ### w.r.t C_k (estimated)
@@ -415,14 +417,14 @@ class sim_world:
         ## w.r.t. b_C_n
         for j in range(3):
             F[3:6,j+6] = -self.dt*\
-                self.sss[j].dot(self.cam_rot[idx].T.dot(D.T).dot(self.accels[idx]-self.a_biases[idx]))
+                self.sss[j].dot(self.rotations[idx].T.dot(D.T).dot(self.accels[idx]-self.a_biases[idx]))
         ## w.r.t. gyro biases
         # for j in range(3):
         #     F[3:6,j+9] = (self.dt**2)/2.0*\
         #         self.cam_rot[idx].T.dot(self.sss[j]).dot(self.scen.accels[idx]-self.a_biases[idx])
         F[3:6,9:12] = np.zeros((3,3))
         ## w.r.t. accel biases.        
-        F[3:6,12:15] = -self.dt*self.cam_rot[idx].T.dot(D.T)
+        F[3:6,12:15] = -self.dt*self.rotations[idx].T.dot(D.T)
 
         F[3:6,18:21] = -np.eye(3)
 
@@ -449,9 +451,7 @@ class sim_world:
         meas_cols = np.zeros(n_meas_entries)
 
         for i in range(self.n_ts):
-            self.cam.set_loc(self.cam_pos[i])
-            self.cam.set_rot(self.cam_rot[i])
-            H = self.compute_H()
+            H = self.compute_H(i)
             meas_entries[(i*240) : (i*240)+240] = self.s_R_inv*H.flatten()
             offset = (i*16, i*15)
             rows, cols = create_ij(offset, H.shape)
@@ -489,6 +489,7 @@ class sim_world:
         # Start with sensor measurements
         for i in range(self.n_ts):
             y[i*2:i*2+2]= self.s_R_inv*(meas[i] - meas_w_noise[i])
+            #print(f'Diff between measurements: {meas[i] - meas_w_noise[i]}')
         
         # Now for dynamics measurements
         dyn_st = sens_meas 
@@ -501,6 +502,7 @@ class sim_world:
             dyn_cost[9:12] = pred_x[3] - self.g_biases[i+1]
             dyn_cost[12:15] = pred_x[4] - self.a_biases[i+1]
             y[dyn_st+i*15:dyn_st+i*15+15] = -self.s_Q_inv.dot(dyn_cost)
+            #print(f'Dyn_Cost:\n{dyn_cost}')
 
         return y
         
@@ -547,20 +549,20 @@ if __name__ == "__main__":
 
     curr_state = sim_world()
 
-    #For testing derivatives...
-    orig_n_ts = curr_state.n_ts
-    curr_state.n_ts = 2 # Make this smaller for testing
-    A = curr_state.compute_A()
-    width = A.shape[1]
-    for i in range(width):
-        test_res = test_deriv(curr_state,i,.0001, a_tol=.1)
-        if not test_res[0]:
-            print('Error with derivative in column',i)
-            print('absolute difference was :\n',np.abs(test_res[1]-test_res[2]))
-            print('Computed derivative was:\n',test_res[2])
-    curr_state.n_ts = orig_n_ts
+    # #For testing derivatives...
+    # orig_n_ts = curr_state.n_ts
+    # curr_state.n_ts = 2 # Make this smaller for testing
+    # A = curr_state.compute_A()
+    # width = A.shape[1]
+    # for i in range(width):
+    #     test_res = test_deriv(curr_state,i,.0001, a_tol=.1)
+    #     if not test_res[0]:
+    #         print('Error with derivative in column',i)
+    #         print('absolute difference was :\n',np.abs(test_res[1]-test_res[2]))
+    #         print('Computed derivative was:\n',test_res[2])
+    # curr_state.n_ts = orig_n_ts
     
-    '''
+    
     done = False
     num_iters = 0
     y = curr_state.compute_Y()
@@ -583,6 +585,8 @@ if __name__ == "__main__":
             ratio = (y.dot(y) - next_y.dot(next_y)) / (y.dot(y) - pred_y.dot(pred_y))
             if ratio > 4 or ratio < 0.25:
                 scale /= 2
+                if scale < 1e-6:
+                    break
                 if scale < 0.01:
                     print(f'At scale: {scale}')
             else:
@@ -633,7 +637,7 @@ if __name__ == "__main__":
     #Rotations
     rots = np.zeros((curr_state.n_ts,3))
     for i in range(curr_state.n_ts):
-        rots[i] = R2v(curr_state.attitudes[i])
+        rots[i] = R2v(curr_state.rotations[i])
     plt.figure()
     plt.plot(rots)
     plt.title('Rotation estimates')
@@ -642,11 +646,11 @@ if __name__ == "__main__":
     #Rotation errors
     rot_errors = np.zeros((curr_state.n_ts,3))
     for i in range(curr_state.n_ts):
-        rot_errors[i] = R2v(curr_state.cam_rot[i].T.dot(curr_state.attitudes[i]))
+        rot_errors[i] = R2v(curr_state.cam_rot[i].T.dot(curr_state.rotations[i]))
     plt.figure()
     plt.plot(rot_errors)
     plt.title('Rotation errors')
     
     
     plt.show()
-    '''
+    
